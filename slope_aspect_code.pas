@@ -1,7 +1,11 @@
-This is extracted from the Delphi (Object Pascal) source code for MICRODEM, which totals around 400,000 lines of code
+//This is extracted from the Delphi (Object Pascal) source code for MICRODEM, which totals around 400,000 lines of code
+//If you are serious about working with this in Delphi, contact me
+//this version is from 4 August 2021
 
 
 type
+   tCompassDirection = (cdN,cdNE,cdE,cdSE,cdS,cdSW,cdW,cdNW,cdFlat,cdPit);
+   
    tSlopeAspectRec = record
        z,znw,zw,zsw,zn,zs,zne,ze,zse,
        dzdx,dzdy,
@@ -16,13 +20,94 @@ type
 
 
 function tDEMDataSet.GetSlopeAndAspect(Col,Row : integer; var SlopeAsp : tSlopeAspectRec) : boolean;
+//based on coordinates in the DEM grid, which starts in the SW corner
+type
+   ShortReal = array[1..4] of float64;
+var
+   sl     : array[1..4] of float64;
+   AspDir : array[2..4] of tCompassDirection;
+   UseDiaSpace : float64;
 
 
-         procedure GetAspect( var SlopeAsp : tSlopeAspectRec);   inline;
+         procedure AddSlope(z,z1,z2,Dist : float64);
+         var
+            d1,d2 : float64;
+         begin
+            d1 := (z - z1);
+            d2 := (z - z2);
+            d1 := abs(d1);
+            SlopeAsp.Slope := SlopeAsp.Slope + d1 / Dist;
+            d2 := abs(d2);
+            SlopeAsp.Slope := SlopeAsp.Slope + d2 / Dist;
+         end;
+
+
+         procedure MaxDownHill(z,z1,z2,Dist : float64; var Max : float64; Dir1,Dir2 : tCompassDirection; var AspDir : tCompassDirection);    inline;
+         var
+            d1,d2 : float64;
+         begin {proc MaxDownHill}
+            d1 := (z - z1);
+            d2 := (z - z2);
+            if (d1 = d2) then if Odd(Random(100)) then d1 := 0 else d2 := 0;
+            if (d1 > d2) and (d1 > 0) then begin
+               AspDir := Dir1;
+               Max := d1 / Dist;
+            end
+            else if (d2 > d1) and (d2 > 0) then begin
+               AspDir := Dir2;
+               Max := d2 / Dist;
+            end
+            else begin
+               Max := 0;
+               AspDir := cdPit;
+            end;
+         end {proc MaxSlope};
+
+
+         procedure MaxSlope(z,z1,z2,Dist : float64; var Max : float64; Dir1,Dir2 : tCompassDirection; var AspDir : tCompassDirection); inline;
+         const
+            Opp : array[tCompassDirection] of tCompassDirection = (cdS,cdSW,cdW,cdNW,cdN,cdNE,cdE,cdSE,cdFlat,cdPit);
+         var
+            d1,d2 : float64;
+         begin {proc MaxSlope}
+            d1 := (z - z1);
+            d2 := (z - z2);
+            if (d1 = d2) then if Odd(Random(100)) then d1 := 0 else d2 := 0;
+
+            if abs(d1) > abs(d2) then begin
+               if d1 < 0 then AspDir := Opp[Dir1] else AspDir := Dir1;
+               d1 := abs(d1);
+               Max := d1 / Dist;
+            end
+            else begin
+               if d2 < 0 then AspDir := Opp[Dir2] else AspDir := Dir2;
+               d2 := abs(d2);
+               Max := d2 / Dist;
+            end;
+         end {proc MaxSlope};
+
+
+         procedure MaxSlopeComputations;
+         begin
+             MaxSlope(SlopeAsp.z,SlopeAsp.zs,SlopeAsp.zn,SlopeAsp.dy,sl[1],cdS,cdN,SlopeAsp.Dir);
+             MaxSlope(SlopeAsp.z,SlopeAsp.zw,SlopeAsp.ze,SlopeAsp.dx,sl[2],cdW,cdE,AspDir[2]);
+             MaxSlope(SlopeAsp.z,SlopeAsp.zsw,SlopeAsp.znw,UseDiaSpace,sl[3],cdSW,cdNW,AspDir[3]);
+             MaxSlope(SlopeAsp.z,SlopeAsp.zse,SlopeAsp.zne,UseDiaSpace,sl[4],cdSE,cdNE,AspDir[4]);
+         end;
+
+
+         function IsPit(var SlopeAsp : tSlopeAspectRec) : boolean; inline;
+         begin
+            Result := (SlopeAsp.z < SlopeAsp.zne) and (SlopeAsp.z < SlopeAsp.znw) and (SlopeAsp.z < SlopeAsp.zn) and (SlopeAsp.z < SlopeAsp.ze) and
+                  (SlopeAsp.z < SlopeAsp.zw) and (SlopeAsp.z < SlopeAsp.zse) and (SlopeAsp.z < SlopeAsp.zsw) and (SlopeAsp.z < SlopeAsp.zs);
+         end;
+
+
+         procedure GetAspect(var SlopeAsp : tSlopeAspectRec); inline;
          begin
             if (abs(SlopeAsp.dzdx) < 0.001) and (abs(SlopeAsp.dzdy) < 0.001) then begin
-               SlopeAsp.Dir := cdFlat;
                SlopeAsp.AspectDir := MaxSmallInt;
+               SlopeAsp.Dir := cdFlat;
             end
             else begin
                //modified atan2 function
@@ -34,8 +119,7 @@ function tDEMDataSet.GetSlopeAndAspect(Col,Row : integer; var SlopeAsp : tSlopeA
                if (SlopeAsp.AspectDir > 360) then SlopeAsp.AspectDir := SlopeAsp.AspectDir - 360;
                if (SlopeAsp.AspectDir < 0) then SlopeAsp.AspectDir := SlopeAsp.AspectDir + 360;
 
-               if (SlopeAsp.z < SlopeAsp.zne) and (SlopeAsp.z < SlopeAsp.znw) and (SlopeAsp.z < SlopeAsp.zn) and (SlopeAsp.z < SlopeAsp.ze) and
-                  (SlopeAsp.z < SlopeAsp.zw) and (SlopeAsp.z < SlopeAsp.zse) and (SlopeAsp.z < SlopeAsp.zsw) and (SlopeAsp.z < SlopeAsp.zs) then begin
+               if IsPit(SlopeAsp) then begin
                      SlopeAsp.Dir := cdPit;
                end
                else begin
@@ -51,31 +135,108 @@ function tDEMDataSet.GetSlopeAndAspect(Col,Row : integer; var SlopeAsp : tSlopeA
             end;
          end;
 
+
+
 var
+   j : integer;
    Lat,Long : float64;
 begin
    Result := false;
-   if SurroundedPointElevs(Col,Row,SlopeAsp.znw,SlopeAsp.zw,SlopeAsp.zsw,SlopeAsp.zn,SlopeAsp.z,SlopeAsp.zs,SlopeAsp.zne,SlopeAsp.ze,SlopeAsp.zse,MDDef.SlopeRegionRadius) then begin
+   SlopeAsp.AspectDir := MaxSmallInt;
+   SlopeAsp.Slope := 0;
+   if SurroundedPointElevs(Col,Row,SlopeAsp.znw,SlopeAsp.zw,SlopeAsp.zsw,SlopeAsp.zn,SlopeAsp.z,SlopeAsp.zs,SlopeAsp.zne,SlopeAsp.ze,SlopeAsp.zse,MDDef.SlopeRegionRadius) then with SlopeAsp do begin
       Result := true;
-      PixelSpacingAndRotation(Col,Row,Lat,Long,SlopeAsp.dx,SlopeAsp.dy,SlopeAsp.GridTrueAngle);
-      SlopeAsp.dzdx := 1 / SlopeAsp.dx / 6 * (+SlopeAsp.zne+SlopeAsp.ze+SlopeAsp.zse-SlopeAsp.znw-SlopeAsp.zw-SlopeAsp.zsw);
-      SlopeAsp.dzdy := 1 / SlopeAsp.dy / 6 * (+SlopeAsp.znw+SlopeAsp.zn+SlopeAsp.zne-SlopeAsp.zsw-SlopeAsp.zs-SlopeAsp.zse);
-      SlopeAsp.Slope := sqrt(sqr(SlopeAsp.dzdx) + sqr(SlopeAsp.dzdy));
-      SlopeAsp.SlopePercent := 100 * SlopeAsp.Slope;
-      SlopeAsp.SlopeDegree := ArcTan(SlopeAsp.Slope) / DegToRad;
-      GetAspect(SlopeAsp);
-   end
-   else begin
-      SlopeAsp.Slope := MaxSmallInt;
-      SlopeAsp.AspectDir := MaxSmallInt;
-      SlopeAsp.Slope := 0;
+
+      PixelSpacingAndRotation(Col,Row,Lat,Long,SlopeAsp.dx,SlopeAsp.dy,SlopeAsp.GridTrueAngle,MDDef.QuickSlopeSpacings);
+      SlopeAsp.dx := SlopeAsp.dx * MDDef.SlopeRegionRadius;
+      SlopeAsp.dy := SlopeAsp.dy * MDDef.SlopeRegionRadius;
+
+      if (MDDef.SlopeAlg in [smEightNeighborsUnweighted,smFourNeighbors,smEightNeighborsWeighted,smEightNeighborsWeightedByDistance,smFrameFiniteDifference,smSimpleDifference,smONeillAndMark]) then begin
+         if (MDDef.SlopeAlg in [smEightNeighborsUnweighted]) then begin
+            SlopeAsp.dzdx := 1 / SlopeAsp.dx / 6 * (+SlopeAsp.zne+SlopeAsp.ze+SlopeAsp.zse-SlopeAsp.znw-SlopeAsp.zw-SlopeAsp.zsw);
+            SlopeAsp.dzdy := 1 / SlopeAsp.dy / 6 * (+SlopeAsp.znw+SlopeAsp.zn+SlopeAsp.zne-SlopeAsp.zsw-SlopeAsp.zs-SlopeAsp.zse);
+         end
+         else if (MDdef.SlopeAlg = smEightNeighborsWeighted) then begin  //Horn method
+            SlopeAsp.dzdx := 0.125 * ( SlopeAsp.zne + (2 * SlopeAsp.ze) + SlopeAsp.zse  -SlopeAsp.znw - (2 * SlopeAsp.zw) - SlopeAsp.zsw) / SlopeAsp.dx;
+            SlopeAsp.dzdy := 0.125 * ( SlopeAsp.znw + (2 * SlopeAsp.zn) + SlopeAsp.zne  -SlopeAsp.zsw - (2 * SlopeAsp.zs) - SlopeAsp.zse) / SlopeAsp.dy;
+         end
+         else if (MDdef.SlopeAlg = smEightNeighborsWeightedByDistance) then begin
+            SlopeAsp.dzdy := 1 / (4 + 2 * sqrt_2) * ((SlopeAsp.znw + Sqrt_2 * SlopeAsp.zn + SlopeAsp.zne) - (SlopeAsp.zsw + Sqrt_2 * SlopeAsp.zs + SlopeAsp.zse)) / SlopeAsp.dy;
+            SlopeAsp.dzdx := 1 / (4 + 2 * sqrt_2) * ((SlopeAsp.zne + Sqrt_2 * SlopeAsp.ze + SlopeAsp.zse) - (SlopeAsp.znw + Sqrt_2 * SlopeAsp.zw + SlopeAsp.zsw)) / SlopeAsp.dx;
+         end
+         else if (MDDef.SlopeAlg = smFrameFiniteDifference) then begin
+            SlopeAsp.dzdy := (SlopeAsp.znw - SlopeAsp.zsw + SlopeAsp.zne - SlopeAsp.zse) * 0.25 / SlopeAsp.dy;
+            SlopeAsp.dzdx := (SlopeAsp.zse - SlopeAsp.zsw + SlopeAsp.zne - SlopeAsp.znw) * 0.25 / SlopeAsp.dx;
+         end
+         else if (MDDef.SlopeAlg = smFourNeighbors) then begin
+            SlopeAsp.dzdy := (SlopeAsp.zn - SlopeAsp.zs) * 0.5 / SlopeAsp.dy;
+            SlopeAsp.dzdx := (SlopeAsp.ze - SlopeAsp.zw) * 0.5 / SlopeAsp.dx;
+         end
+         else if (MDDef.SlopeAlg = smSimpleDifference) then begin
+            SlopeAsp.dzdy := (SlopeAsp.z - SlopeAsp.zs) * 0.5 / SlopeAsp.dy;
+            SlopeAsp.dzdx := (SlopeAsp.z - SlopeAsp.zw) * 0.5 / SlopeAsp.dx;
+         end
+         else if (MDDef.SlopeAlg in [smONeillAndMark]) then begin
+            SlopeAsp.dzdy := (SlopeAsp.zn - SlopeAsp.z) / SlopeAsp.dy;
+            SlopeAsp.dzdx := (SlopeAsp.ze - SlopeAsp.z) / SlopeAsp.dx;
+         end;
+         SlopeAsp.Slope := sqrt(sqr(SlopeAsp.dzdx) + sqr(SlopeAsp.dzdy));
+         SlopeAsp.SlopePercent := 100 * SlopeAsp.Slope;
+         SlopeAsp.SlopeDegree := ArcTan(SlopeAsp.Slope) / DegToRad;
+         GetAspect(SlopeAsp);
+      end
+      else begin
+         UseDiaSpace := DiagSpaceByDEMrow^[Row] * MDDef.SlopeRegionRadius;
+         if (MDDef.SlopeAlg in [smGuthHybrid]) then begin  //no longer recommended
+             MaxSlopeComputations;
+             for j := 2 to 4 do if sl[j] > sl[1] then sl[1] := sl[j];
+             Slope := Sl[1];
+             dzdx := (SlopeAsp.zne + SlopeAsp.ze + SlopeAsp.zse - SlopeAsp.zsw - SlopeAsp.zw - SlopeAsp.znw) / 6 / SlopeAsp.dx;
+             dzdy := (SlopeAsp.znw + SlopeAsp.zn + SlopeAsp.zne - SlopeAsp.zsw - SlopeAsp.zs - SlopeAsp.zse) / 6 / SlopeAsp.dy;
+             GetAspect(SlopeAsp);
+         end
+         else if (MDDef.SlopeAlg in [smSteepestNeighbor,smAverageNeighbor]) then begin
+            MaxSlopeComputations;
+            for j := 2 to 4 do if sl[j] > sl[1] then begin
+                sl[1] := sl[j];
+                Dir := AspDir[j];
+            end {for j};
+            Slope := Sl[1];
+            AspectDir := 45.0 * Ord(Dir);
+            if (MDDef.SlopeAlg = smAverageNeighbor) then begin
+               Slope := 0;
+               AddSlope(z,zs,zn,SlopeAsp.dy);
+               AddSlope(z,zw,ze,SlopeAsp.dx);
+               AddSlope(z,zsw,znw,UseDiaSpace);
+               AddSlope(z,zse,zne,UseDiaSpace);
+               Slope := Slope / 8;
+            end;
+         end
+         else if (MDDef.SlopeAlg = smMaxDownhillSlope) then begin
+            MaxDownHill(z,zs,zn,SlopeAsp.dy,sl[1],cdS,cdN,Dir);
+            MaxDownHill(z,zw,ze,SlopeAsp.dx,sl[2],cdW,cdE,AspDir[2]);
+            MaxDownHill(z,zsw,znw,UseDiaSpace,sl[3],cdSW,cdNW,AspDir[3]);
+            MaxDownHill(z,zse,zne,UseDiaSpace,sl[4],cdSE,cdNE,AspDir[4]);
+            for j := 2 to 4 do if sl[j] > sl[1] then begin
+                sl[1] := sl[j];
+                Dir := AspDir[j];
+            end {for j};
+            Slope := Sl[1];
+            AspectDir := 45.0 * Ord(Dir);
+         end;
+         if IsPit(SlopeAsp) then SlopeAsp.Dir := cdPit;
+      end;
+      SlopeAsp.SlopePercent := 100 * Slope;
+      SlopeAsp.SlopeDegree := ArcTan(Slope) / DegToRad;
    end;
-end {proc};
+end {proc GetSlopeAndAspect};
 
 
-function HeadingOfLine(dx,dy : float64) : float64;
+
+function HeadingOfLine(dx,dy : float64) : float64; inline;
 {returns the heading of a line, with the value between 0 and 360 in degrees}
-{   values start with 0 north and proceed clockwise                        }
+{   values start with 0 north and proceed clockwise, geographic convention }
+{modified atan2 function, deals with 0 values in dx or dy                  }
 begin
    if abs(dy) < 0.000001 then
       if (dx > 0) then Result := 90 else Result := 270
@@ -91,23 +252,40 @@ begin
 end {proc HeadingOfLine};
 
 
-procedure tDEMDataSet.PixelSpacingAndRotation(Col,Row : integer; var Lat,Long,xdistance,ydistance,GridTrueAngle : float64);
-var
-   Lat1,Long1,Lat2,Long2,Bearing : float64;
-begin
-//this calls routines to deal with all possible cases of the DEM geometry
-   DEMGridToLatLongDegree(Col,Row,Lat,Long);
-   DEMGridToLatLongDegree(Col,pred(Row),Lat1,Long1);
-   DEMGridToLatLongDegree(Col,succ(Row),Lat2,Long2);
-   VincentyCalculateDistanceBearing(Lat1,Long1,Lat2,Long2,yDistance,GridTrueAngle);
-   if GridTrueAngle > 180 then GridTrueAngle := - (360 - GridTrueAngle);
 
-   DEMGridToLatLongDegree(pred(Col),Row,Lat1,Long1);
-   DEMGridToLatLongDegree(succ(Col),Row,Lat2,Long2);
-   VincentyCalculateDistanceBearing(Lat1,Long1,Lat2,Long2,xDistance,Bearing);
-   xdistance := 0.5 * xDistance;
-   ydistance := 0.5 * yDistance;
+procedure tDEMDataSet.PixelSpacingAndRotation(Col,Row : integer; var Lat,Long,xdistance,ydistance,GridTrueAngle : float64; Quick : boolean = true);
+//quick mode uses stored values from the DEM initial opening
+//pixel sizes will agree within about 1 mm for a 1" DEM
+//quick mode is about 3 times faster
+var
+   Lat1,Long1,Lat2,Long2,Lat3,Long3,Lat4,Long4,Bearing : float64;
+begin
+   DEMGridToLatLongDegree(Col,Row,Lat,Long);
+   if Quick and (DEMheader.DEMUsed = ArcSecDEM) then begin
+      xdistance := XSpaceByDEMrow^[Row];
+      ydistance := AverageYSpace;
+      GridTrueAngle := 0;
+   end
+   else if Quick and (DEMheader.DEMUsed = UTMbasedDEM) then begin
+      xdistance := AverageXSpace;
+      ydistance := AverageYSpace;
+      GridTrueAngle := AverageGridTrue; //computed at the center of DEM during opening;  this will have problems if the DEM covers a large area near edge of UTM zone
+   end
+   else begin
+      //this calls routines to deal with all possible cases of the DEM geometry for other more unusual projections
+      DEMGridToLatLongDegree(Col,pred(Row),Lat1,Long1);
+      DEMGridToLatLongDegree(Col,succ(Row),Lat2,Long2);
+      VincentyCalculateDistanceBearing(Lat1,Long1,Lat2,Long2,yDistance,GridTrueAngle);
+      ydistance := 0.5 * yDistance;
+      if (GridTrueAngle > 180) then GridTrueAngle := - (360 - GridTrueAngle);
+
+      DEMGridToLatLongDegree(pred(Col),Row,Lat3,Long3);
+      DEMGridToLatLongDegree(succ(Col),Row,Lat4,Long4);
+      VincentyCalculateDistanceBearing(Lat3,Long3,Lat4,Long4,xDistance,Bearing);
+      xdistance := 0.5 * xDistance;
+   end;
 end;
+
 
 
 
