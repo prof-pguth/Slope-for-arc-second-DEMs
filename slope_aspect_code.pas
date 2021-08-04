@@ -21,8 +21,6 @@ type
 
 function tDEMDataSet.GetSlopeAndAspect(Col,Row : integer; var SlopeAsp : tSlopeAspectRec) : boolean;
 //based on coordinates in the DEM grid, which starts in the SW corner
-type
-   ShortReal = array[1..4] of float64;
 var
    sl     : array[1..4] of float64;
    AspDir : array[2..4] of tCompassDirection;
