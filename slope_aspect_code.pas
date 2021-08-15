@@ -1,11 +1,9 @@
 //This is extracted from the Delphi (Object Pascal) source code for MICRODEM, which totals around 400,000 lines of code
-//If you are serious about working with this in Delphi, contact me
-//this version is from 4 August 2021
+//If you are serious about working with this in Delphi, contact me, pguth@usna.edu or pguth@verizon.net
+//this version is from 15 August 2021
 
 
 type
-   tCompassDirection = (cdN,cdNE,cdE,cdSE,cdS,cdSW,cdW,cdNW,cdFlat,cdPit);
-   
    tSlopeAspectRec = record
        z,znw,zw,zsw,zn,zs,zne,ze,zse,
        dzdx,dzdy,
@@ -21,6 +19,8 @@ type
 
 function tDEMDataSet.GetSlopeAndAspect(Col,Row : integer; var SlopeAsp : tSlopeAspectRec) : boolean;
 //based on coordinates in the DEM grid, which starts in the SW corner
+type
+   ShortReal = array[1..4] of float64;
 var
    sl     : array[1..4] of float64;
    AspDir : array[2..4] of tCompassDirection;
@@ -252,7 +252,7 @@ end {proc HeadingOfLine};
 
 
 procedure tDEMDataSet.PixelSpacingAndRotation(Col,Row : integer; var Lat,Long,xdistance,ydistance,GridTrueAngle : float64; Quick : boolean = true);
-//quick mode uses stored values from the DEM initial opening
+//quick mode uses stored values from the DEM initial opening, averages for the DEM which works if the DEM covers a small area
 //pixel sizes will agree within about 1 mm for a 1" DEM
 //quick mode is about 3 times faster
 var
@@ -497,6 +497,32 @@ begin
    {$IfDef RecordGeotdeticCalcDetailed} RecordFinalValues; {$EndIf}
    {$IfDef RecordGeotdeticCalc} WriteLineToDebugFile('CalculateDistanceBearing out, Distance=' + RealToString(Distance,12,3) + '  Bearing=' + RealToString(Bearing,8,3)); {$EndIf}
 end;
+
+
+
+function tDEMDataSet.ReflectanceValue(x,y : integer) : integer;
+{returns reflectance value that ranges from 0 (black) to 255 (white); MaxSmallInt if undefined}
+{ after Pelton, Colin, 1987, A computer program for hill-shading digital topographic data sets: Computers & Geosciences, vol.13, no.5, p.545-548.}
+//https://desktop.arcgis.com/en/arcmap/10.3/tools/spatial-analyst-toolbox/how-hillshade-works.htm
+//Hillshade = 255.0 * ((cos(Zenith_rad) * cos(Slope_rad)) + (sin(Zenith_rad) * sin(Slope_rad) * cos(Azimuth_rad - Aspect_rad)))
+//Note that if the calculation of the hillshade value is < 0, the output cell value will be = 0.
+var
+   sum  : float64;
+   i : integer;
+   SlopeAsp : tSlopeAspectRec;
+begin
+   if GetSlopeAndAspect(x,y,SlopeAsp) then begin
+      Sum := 0;
+      for I := 1 to MDdef.UseRefDirs do begin
+         Sum := sum + ValidByteRange(round(255.0 * ( (cosDegSunAltitude * cosDeg(RefVertExag * SlopeAsp.SlopeDegree)) + (sinDegSunAltitude * sinDeg(RefVertExag * SlopeAsp.SlopeDegree) * cosDeg(RefPhi[i] - SlopeAsp.AspectDir)))));
+      end;
+      Result := round(Sum/MDdef.UseRefDirs);
+   end
+   else begin
+      Result := MaxSmallInt;
+   end;
+end;
+
 
 
 
